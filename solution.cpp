@@ -99,7 +99,7 @@ public:
                      { return (m_queue.size() < BUFFER_SIZE); });
         m_queue.push(problems);
 
-        //std::cout << "+ Pushed" << std::endl;
+        // std::cout << "+ Pushed" << std::endl;
 
         cv_empty.notify_one();
     }
@@ -108,14 +108,13 @@ public:
     {
         std::unique_lock<std::mutex> lock(m_mutex);
         cv_empty.wait(lock, [this]()
-                      { //std::cout << "Sleeping..." << std::endl;
-                    return !m_queue.empty() ; });
+                      { return !m_queue.empty(); });
 
         ProblemPlus problems = m_queue.front();
         m_queue.pop();
 
-        //std::cout << "- Popped" << std::endl;
-        
+        // std::cout << "- Popped" << std::endl;
+
         cv_full.notify_one();
         return problems;
     }
@@ -159,13 +158,11 @@ public:
 
     void stop(void)
     {
-        //std::cout << "STOP STARTED" << std::endl;
         for (auto &thread : m_threads)
         {
             if (thread.joinable())
                 thread.join();
         }
-        //std::cout << "STOPPED and SUCCESS!" << std::endl;
     }
 
     void addCompany(ACompany company)
@@ -193,9 +190,10 @@ private:
             if (basicPorblemPack)
             {
                 ProblemPackPlus problemPack = std::make_shared<ProblemPackWrapper>(basicPorblemPack, company, order++);
-                auto& rawProblem = problemPack->m_problems->m_Problems;
-                for ( auto& p : rawProblem ) {
-                    ProblemPlus wrappedProblem =std::make_shared<ProblemWrapper> (p, problemPack);  
+                auto &rawProblem = problemPack->m_problems->m_Problems;
+                for (auto &p : rawProblem)
+                {
+                    ProblemPlus wrappedProblem = std::make_shared<ProblemWrapper>(p, problemPack);
                     m_problemQueue.push(wrappedProblem);
                 }
             }
@@ -212,22 +210,19 @@ private:
                     for (int i = 0; i < activeWorkers; i++)
                     {
                         // creating poison so the worker threads can die
-                        ProblemPlus wrappedProblem =std::make_shared<ProblemWrapper> (nullptr, nullptr, true);  
+                        ProblemPlus wrappedProblem = std::make_shared<ProblemWrapper>(nullptr, nullptr, true);
                         m_problemQueue.push(wrappedProblem);
                     }
                 }
                 unique_lock<mutex> lock2(runningMtx);
                 runningProd--;
                 lock2.unlock();
-                
+
                 break;
             }
         }
         std::cout << "Receive problems: ENDED" << std::endl;
     }
-
-
-
 
     void sendSolvedPacks(ACompany company)
     {
@@ -236,18 +231,14 @@ private:
             pQueue;
 
         int next_order = 0;
-        // unique_lock<mutex> ul(runningMtx);
         while (true)
-        {   
-            // ul.unlock();
+        {
             std::unique_lock<std::mutex> lock(m_solvedPacksMutex);
             m_cv.wait(lock, [this, &company]
-                      { 
-                        //std::cout << "Sleeping...insolvedPack" << runningWorker << std::endl;
-                        return m_solvedPacks[company].size() > 0 || (runningWorker == 0) ;});
-            //std::cout << "up...insolvedPack" << std::endl;
-            if (runningWorker == 0 && m_solvedPacks[company].empty()) {
-                std::cout << "-->" << std::endl;
+                      { return m_solvedPacks[company].size() > 0 || (runningWorker == 0); });
+  
+            if (runningWorker == 0 && m_solvedPacks[company].empty())
+            {
                 break;
             }
 
@@ -263,13 +254,11 @@ private:
             while (pQueue.top()->m_order == next_order)
             {
                 company->solvedPack(pQueue.top()->m_problems);
-                std::cout << "SOLVED---> " <<pQueue.top()->m_order << std::endl;
                 pQueue.pop();
                 ++next_order;
             }
-            // ul.lock();
         }
-        
+
         std::cout << "Send SOLVED: ENDED" << std::endl;
     }
 
@@ -278,27 +267,25 @@ private:
         std::unique_lock<mutex> originLock(problem->origin->mtx);
         int unsolved = --(problem->origin->unsolved);
         originLock.unlock();
-        
-        if ( unsolved == 0 ) { // all solved in this pack
+
+        if (unsolved == 0)
+        { // all solved in this pack
             std::unique_lock<std::mutex> lock(m_solvedPacksMutex);
             m_solvedPacks[problem->origin->m_company].push_back(problem->origin);
-            std::cout << "Delivered to solve"<< "------> " << problem->origin->m_order << std::endl;
             m_cv.notify_all();
         }
     }
 
-
-
-
-
     void worker()
     {
         AProgtestSolver solver = createProgtestSolver();
-        
-        if (!solver->hasFreeCapacity()) {
+
+        if (!solver->hasFreeCapacity())
+        {
             unique_lock<mutex> workerVar(runningMtx);
             runningWorker--;
-            if (runningWorker == 0) m_cv.notify_all();
+            if (runningWorker == 0)
+                m_cv.notify_all();
             workerVar.unlock();
             return;
         }
@@ -314,35 +301,39 @@ private:
             if (problem->last)
             {
                 solver->solve();
-                for (auto& item : toBeSolved) {
+                for (auto &item : toBeSolved)
+                {
                     deliverToSolveThread(item);
                 }
-                // toBeSolved.clear(); no need to clear cause we're exiting
                 break;
             }
 
             solver->addProblem(problem->problem);
             toBeSolved.push_back(problem);
 
-            if (!solver->hasFreeCapacity()) {
-                //don't have capacity, handle it
+            if (!solver->hasFreeCapacity())
+            {
+                // out of capacity
                 solver->solve();
-                for (auto& item : toBeSolved) {
+                for (auto &item : toBeSolved)
+                {
                     deliverToSolveThread(item);
                 }
                 toBeSolved.clear();
                 solver = createProgtestSolver();
-                if (!solver->hasFreeCapacity()) break;
+                // no more solver instance available
+                if (!solver->hasFreeCapacity())
+                    break;
             }
-            
             lock.lock();
         }
 
         unique_lock<mutex> workerVar(runningMtx);
         runningWorker--;
-        if (runningWorker == 0) m_cv.notify_all();
+        if (runningWorker == 0)
+            m_cv.notify_all();
         workerVar.unlock();
-        std::cout << "Consumer : end" << std::endl;
+        std::cout << "Worker : Ended" << std::endl;
     }
 
     std::vector<ACompany> m_companies;
@@ -352,7 +343,6 @@ private:
     int runningProd;
     int runningWorker;
     std::mutex runningMtx;
-
 
     std::mutex m_solvedPacksMutex;
     std::condition_variable m_cv;
